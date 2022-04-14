@@ -84,18 +84,29 @@ class Timecode extends Object {
 
   /// Creates a timecode with a specific timecode string and framerate.
   ///
+  /// If [framerate] is omitted, the following defaults will be used:
+  /// - default timecodes (00:00:00:00) -> 24 fps
+  /// - drop frame timecodes (00:00:00;00) -> 29.97 fps
+  /// - ms timecodes (00:00:00.000) -> 1000 fps
+  ///
   /// NOTE: When using drop frame framerates, some timecode strings are considered
   /// invalid and will be corrected to valid timecodes. Consider the following examples.
   ///
   /// ```dart
   /// var fps = TimecodeFramerate(29.97);
   /// Timecode.atTimecode('00:00:59;29', framerate: fps); // -> 00:00:59;29
-  /// Timecode.atTimecode('00:01:00;00', framerate: fps); // -> 00:00:59;28 (!!)
-  /// Timecode.atTimecode('00:01:00;01', framerate: fps); // -> 00:00:59;29 (!!)
+  /// Timecode.atTimecode('00:01:00;00', framerate: fps); // -> 00:01:00;02 (!!)
+  /// Timecode.atTimecode('00:01:00;01', framerate: fps); // -> 00:01:00;02 (!!)
   /// Timecode.atTimecode('00:01:00;02', framerate: fps); // -> 00:01:00;02
   /// ```
   factory Timecode.atTimecode(String timecodeString, {TimecodeFramerate? framerate}) {
-    framerate ??= TimecodeFramerate(defaultFPS);
+    double def = 24;
+    if (timecodeString.contains(';')) {
+      def = 29.97;
+    } else if (timecodeString.contains('.')) {
+      def = 1000;
+    }
+    framerate ??= TimecodeFramerate(def);
     var startFrames = parseToFrames(timecodeString, framerate: framerate);
     return Timecode(framerate: framerate, startFrames: startFrames);
   }
@@ -296,12 +307,13 @@ class TimecodeFramerate {
   }
 
   /// returns timecode frame count from timecode seconds.
-  /// For dropFrame contexts, will return `seconds * integerFps`
-  /// Otherwise, will return `seconds * fps`
+  /// Timecode seconds are always based on the integerFps
+  /// and that's why drop frames are needed
   /// will roll over after 24 hours
-  int timecodeSecondsToFrames(double seconds) {
+  int timecodeSecondsToFrames(double seconds, {ignoreDropFrame = false}) {
     seconds = rollover(seconds);
-    return (seconds * (isDropFrame ? integerFps : fps)).floor();
+    return seconds.round() * integerFps;
+    // return (seconds * ((isDropFrame && !ignoreDropFrame) ? integerFps : fps)).floor();
   }
 
   /// code modified for Dart and split into two functions
