@@ -1,20 +1,8 @@
 const double defaultFPS = 24;
 
-/// This is a reimplementation in Dart of the excellent PyTimeCode library
-/// for Python by Joshua Banton
+/// Some parts have been copied / inspired by the pytimecode library by Joshua Banton
 ///
 /// https://pypi.org/project/pytimecode.py/
-///
-/// This module is for the generating and manipulating of SMPTE timecode.
-/// Supports 60, 59.94, 50, 30, 29.97, 25, 24, 23.98 frame rates in drop
-/// and non-drop where applicable, and milliseconds. It also implements
-/// operator overloading for equality, addition, subtraction, multiplication,
-/// and division (when the two objects have the same framerate). To combine
-/// objects of different framerates, use the instance methods.
-///
-/// [iterReturn] sets the format that iterations return, the options are "tc" for a timecode string,
-/// "frames" for a int total frames, and "tc_tuple" for a tuple of ints in the following format,
-/// (hours, minutes, seconds, frames).
 ///
 /// Notes: *There is a 24 hour SMPTE Timecode limit, so if your time exceeds that limit, it will roll over.
 ///
@@ -22,31 +10,15 @@ const double defaultFPS = 24;
 /// frames, then when required it converts the frames to a timecode by
 /// using the frame rate setting.
 ///
-/// Parameters:
+/// Note: Drop frame timecodes operate by reporting higher frame numbers
+/// than really exist so that 29.97 timecodes stay in sync with 30 fps ones, etc.
 ///
-/// [framerate]: The frame rate of the Timecode instance. It
-///   should be one of ['23.976', '23.98', '24', '25', '29.97', '30', '50',
-///   '59.94', '60', 'NUMERATOR/DENOMINATOR', ms'] where "ms" equals to
-///   1000 fps.
-///   Can not be skipped.
-///   Setting the framerate will automatically set the :attr:`.drop_frame`
-///   attribute to correct value.
-/// :param start_timecode: The start timecode. Use this to be able to
-///   set the timecode of this Timecode instance. It can be skipped and
-///   then the frames attribute will define the timecode, and if it is also
-///   skipped then the start_second attribute will define the start
-///   timecode, and if start_seconds is also skipped then the default value
-///   of '00:00:00:00' will be used.
-///   When using 'ms' frame rate, timecodes like '00:11:01.040' use '.040'
-///   as frame number. When used with other frame rates, '.040' represents
-///   a fraction of a second. So '00:00:00.040'@25fps is 1 frame.
-/// :type framerate: str or int or float or tuple
-/// :type start_timecode: str or None
-/// :param start_seconds: A float or integer value showing the seconds.
-/// :param int frames: Timecode objects can be initialized with an
-///   integer number showing the total frames.
-/// :param force_non_drop_frame: If True, uses Non-Dropframe calculation for
-///   29.97 or 59.94 only. Has no meaning for any other framerate.
+/// Drop Frame Example:
+///
+/// at 59.94 fps, the next frame after 00:00:59;59 will be 00:01:00;02 (skipping 0 & 1)
+///
+/// We implement drop frame timecodes by internally keeping track of real frames
+/// and timecode frames.
 class Timecode extends Object {
   TimecodeFramerate framerate;
 
@@ -57,9 +29,9 @@ class Timecode extends Object {
 
   // display frames as fractions of a second instead of frame numbers
   bool get isMillis => integerFps == 1000;
-
   bool forceFractionalSeconds = false;
 
+  /// _frames keeps track of the actual frame count
   int _frames = 0;
   int get frames => _frames;
   set frames(int n) {
@@ -68,18 +40,21 @@ class Timecode extends Object {
     _recomputeValues();
   }
 
-  int _hh = 0;
-  int get hh => _hh;
-  int _mm = 0;
-  int get mm => _mm;
-  int _ss = 0;
-  int get ss => _ss;
-  int _ff = 0;
-  int get ff => _ff;
-  int _frac = 0; // fractional seconds in milliseconds
-  int get frac => _frac;
-  int _millis = 0;
-  int get millis => _millis;
+  TimecodeData _data = TimecodeData();
+
+  // these are the variables
+  int get hh => _data.hh;
+  int get mm => _data.mm;
+  int get ss => _data.ss;
+
+  /// will honor the drop frame setting
+  int get ff => _data.ff;
+
+  /// fractional seconds in milliseconds honors drop frame
+  int get frac => _data.frac;
+
+  /// millis reflects the realtime duration of this instance
+  int get millis => _data.millis;
 
   // helper for `toString` method
   String get frameDelimiter => isDropFrame
@@ -107,7 +82,7 @@ class Timecode extends Object {
   /// Creates a timecode with a specific timecode string and framerate.
   factory Timecode.atTimecode(String timecodeString, {TimecodeFramerate? framerate}) {
     framerate ??= TimecodeFramerate(defaultFPS);
-    var startFrames = parse(timecodeString, framerate: framerate);
+    var startFrames = parseToFrames(timecodeString, framerate: framerate);
     return Timecode(framerate: framerate, startFrames: startFrames);
   }
 
@@ -125,7 +100,7 @@ class Timecode extends Object {
   /// The calculation of this timecode is modified from the math
   /// of the pytimecode library. Any errors in the implementation
   /// are my own.
-  static int parse(String timecodeString, {TimecodeFramerate? framerate}) {
+  static int parseToFrames(String timecodeString, {TimecodeFramerate? framerate}) {
     framerate ??= TimecodeFramerate(defaultFPS);
     var isDropFrame = timecodeString.contains(';');
     if (isDropFrame != framerate.isDropFrame) {
@@ -145,7 +120,7 @@ class Timecode extends Object {
     var totalMinutes = mm + hh * 60;
     var totalSeconds = ss + totalMinutes * 60;
     var totalFrames = (totalSeconds * framerate.integerFps + ff).floor();
-    return framerate.removeDroppedFrames(totalFrames);
+    return framerate.realFrames(totalFrames);
   }
 
   @override
@@ -165,26 +140,26 @@ class Timecode extends Object {
   }
 
   Timecode operator +(Timecode other) {
-    var millis = _millis + other.millis;
-    var seconds = millis / 1000;
+    var m = millis + other.millis;
+    var seconds = m / 1000;
     return Timecode.atSeconds(seconds, framerate: framerate);
   }
 
   Timecode operator -(Timecode other) {
-    var millis = _millis - other.millis;
-    var seconds = millis / 1000;
+    var m = millis - other.millis;
+    var seconds = m / 1000;
     return Timecode.atSeconds(seconds, framerate: framerate);
   }
 
   Timecode operator *(int multiplier) {
-    var millis = _millis * multiplier;
-    var seconds = millis / 1000;
+    var m = millis * multiplier;
+    var seconds = m / 1000;
     return Timecode.atSeconds(seconds, framerate: framerate);
   }
 
   Timecode operator /(int divisor) {
-    var millis = _millis / divisor;
-    var seconds = millis / 1000;
+    var m = millis / divisor;
+    var seconds = m / 1000;
     return Timecode.atSeconds(seconds, framerate: framerate);
   }
 
@@ -192,15 +167,7 @@ class Timecode extends Object {
   int get hashCode => _frames.hashCode;
 
   void _recomputeValues() {
-    var seconds = framerate.framesToSeconds(_frames);
-    var ws = seconds.wholeSeconds;
-
-    _ss = ws % 60;
-    _mm = (ws ~/ 60) % 60;
-    _hh = (ws ~/ 60) ~/ 60;
-    _ff = seconds.fractionAsFrames;
-    _frac = (1000 * (seconds.seconds - ws)).floor();
-    _millis = (seconds.seconds * 1000).round();
+    _data = framerate.parseFrames(frames);
   }
 
   void addFrames(int n) => frames = frames + n;
@@ -259,27 +226,40 @@ class TimecodeFramerate {
     return TimecodeFramerate._(fps, integerFramerate, isDropFrame, dfpm);
   }
 
-  // when moving to frames, always add one frame;
   int secondsToFrames(double seconds) {
+    // timecode rolls over after 24 hours
+    seconds %= 60 * 60 * 24;
     if (!isDropFrame) return (seconds * fps).floor();
     var framesBeforeDrop = (seconds * integerFps).floor();
-    return removeDroppedFrames(framesBeforeDrop);
+    return realFrames(framesBeforeDrop);
   }
 
-  // when moving to seconds, always remove one frame
-  TimecodeSecondsWithFrames framesToSeconds(int frames) {
+  TimecodeData parseFrames(int frames, {ignoreDropFrame = false}) {
     // Number of frames in a day - timecode rolls over after 24 hours
     var framesPer24Hours = (fps * 60 * 60 * 24).round();
     frames %= framesPer24Hours;
-    frames = restoreDroppedFrames(frames);
-    var remainderFrames = frames % integerFps;
-    var seconds = frames / integerFps;
+    var effectiveFps = fps;
+    if (!ignoreDropFrame) {
+      frames = timecodeFrames(frames);
+      if (isDropFrame) effectiveFps = integerFps.toDouble();
+    }
+    var seconds = frames / effectiveFps;
+    var ws = seconds.floor();
+    var hh = (ws ~/ 60) ~/ 60;
+    var mm = (ws ~/ 60) % 60;
+    var ss = ws % 60;
+    var ff = frames - (ws * effectiveFps).floor();
+    var millis = (seconds * 1000).floor();
+    var frac = (1000 * (seconds % 60)).floor();
 
-    return TimecodeSecondsWithFrames(seconds, remainderFrames);
+    return TimecodeData(hh, mm, ss, ff, frac, millis);
   }
 
-  int restoreDroppedFrames(int framesAfterDrop) {
-    var frames = framesAfterDrop;
+  /// timecode frames will be equal to or larger than real frames
+  /// in 59.94 fps, after one minute, two frames will be added to
+  /// the timecode frame count
+  int timecodeFrames(int realFrames) {
+    var frames = realFrames;
     if (isDropFrame) {
       // Number of frames per minute is the integer framerate * 60 minus
       // the number of dropped frames.
@@ -293,8 +273,11 @@ class TimecodeFramerate {
     return frames;
   }
 
-  int removeDroppedFrames(int framesBeforeDrop) {
-    var frames = framesBeforeDrop;
+  /// timecode frames will be equal to or larger than real frames
+  /// in 59.94 fps, after one minute, two frames will be added to
+  /// the timecode frame count
+  int realFrames(int timecodeFrames) {
+    var frames = timecodeFrames;
     if (isDropFrame) {
       var seconds = frames ~/ integerFps;
       var totalMinutes = seconds ~/ 60;
@@ -314,6 +297,26 @@ class TimecodeSecondsWithFrames {
   int get wholeSeconds => seconds.floor();
 
   TimecodeSecondsWithFrames(this.seconds, this.fractionAsFrames);
+}
+
+/// Timecode data that is ignorant of framerate.
+/// We use this to pass around structured timecode data
+class TimecodeData {
+  // these are the variables
+  final int _hh;
+  int get hh => _hh;
+  final int _mm;
+  int get mm => _mm;
+  final int _ss;
+  int get ss => _ss;
+  final int _ff;
+  int get ff => _ff;
+  final int _frac; // fractional seconds in milliseconds
+  int get frac => _frac;
+  final int _millis;
+  int get millis => _millis;
+
+  const TimecodeData([this._hh = 0, this._mm = 0, this._ss = 0, this._ff = 0, this._frac = 0, this._millis = 0]);
 }
 
 class TimecodeException implements Exception {
