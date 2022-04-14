@@ -1,9 +1,8 @@
 name: timecode
 description: |
-  This library is a pure Dart implementation of the SMTPE timecode specification.
-  It is based on the pytimecode library by Joshua Banton.
-  https://pypi.org/project/pytimecode.py/
-version: 0.2.0
+  This library is a pure Dart implementation of the SMPTE timecode specification.
+  It is inspired by the pytimecode library by Joshua Banton and the website of David Heidelberger.
+version: 0.3.0
 homepage: https://www.jeffmikels.com
 
 environment:

@@ -36,3 +36,11 @@ for (var i = 0; i < 100; i++) {
 
 The class is well-documented, so you should be able to understand it easily by looking at the API documentation
 or by reading the source code directly.
+
+### Reference material
+
+This work is based on the work of the following:
+
+-   https://www.connect.ecuad.ca/~mrose/pdf_documents/timecode.pdf
+-   https://www.davidheidelberger.com/2010/06/10/drop-frame-timecode/
+-   https://pypi.org/project/pytimecode.py/

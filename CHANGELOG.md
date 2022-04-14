@@ -1,3 +1,7 @@
+## 0.3.0
+
+-   minor documentation improvements and a spelling correction.
+
 ## 0.2.0
 
 -   Directly implemented the algorithms from https://www.davidheidelberger.com/2010/06/10/drop-frame-timecode/ but made a few modifications
