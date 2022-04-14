@@ -2,12 +2,12 @@ import 'package:timecode/timecode.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('A group of tests', () {
+  group('Testing...', () {
     setUp(() {
       // Additional setup goes here.
     });
 
-    test('Testing Millis', () {
+    test('Millis', () {
       final t1000 = Timecode(framerate: TimecodeFramerate(1000));
       expect(t1000.toString(), equals('00:00:00.000'));
 
@@ -16,7 +16,7 @@ void main() {
       expect(t60.toString(), equals('00:00:00.000'));
     });
 
-    test('Testing Drop Frame', () {
+    test('Drop Frame Flags', () {
       final t2997 = Timecode(framerate: TimecodeFramerate(29.97));
       final t5994 = Timecode(framerate: TimecodeFramerate(59.94));
       for (var testable in [t2997, t5994]) {
@@ -25,7 +25,7 @@ void main() {
       }
     });
 
-    test('Testing Non Drop Frame', () {
+    test('Non Drop Frame', () {
       final t24 = Timecode(framerate: TimecodeFramerate(24));
       final t2398 = Timecode(framerate: TimecodeFramerate(23.98));
       final t30 = Timecode(framerate: TimecodeFramerate(30));
@@ -39,24 +39,47 @@ void main() {
       }
     });
 
-    test('Testing Constructors', () {
+    test('Constructors', () {
       var t = Timecode.atSeconds(10, framerate: TimecodeFramerate(24));
       expect(t.toString(), equals('00:00:10:00'));
       t = Timecode.atSeconds(10, framerate: TimecodeFramerate(29.97));
       expect(t.toString(), equals('00:00:10;00'));
     });
 
-    test('Testing Drop Frame Increments', () {
+    test('Drop Frame Increments with 29.97', () {
       var t = Timecode.atSeconds(59, framerate: TimecodeFramerate(29.97));
       t.addFrames(27);
       expect(t.toString(), equals('00:00:59;27'));
       t.next();
-      expect(t.toString(), equals('00:01:00;00'));
+      expect(t.toString(), equals('00:00:59;28'));
+      t.next();
+      expect(t.toString(), equals('00:00:59;29'));
+      t.next();
+      expect(t.toString(), equals('00:01:00;02'));
+      t.next();
+      expect(t.toString(), equals('00:01:00;03'));
     });
 
-    test('Testing Non Drop Frame Increments', () {
+    test('Forced Non Drop Frame Increments with 29.97', () {
+      var t = Timecode.atSeconds(59, framerate: TimecodeFramerate(29.97, forceNonDropFrame: true));
+      t.addFrames(27);
+      expect(t.toString(), equals('00:00:59:27'));
+      t.next();
+      expect(t.toString(), equals('00:00:59:28'));
+      t.next();
+      expect(t.toString(), equals('00:00:59:29'));
+      t.next();
+      expect(t.toString(), equals('00:01:00:00'));
+      t.next();
+      expect(t.toString(), equals('00:01:00:01'));
+    });
+
+    test('Non Drop Frame Increments', () {
       var t = Timecode.atSeconds(10, framerate: TimecodeFramerate(24));
-      expect(t.toString(), equals('00:00:10:00'));
+      t.addFrames(23);
+      expect(t.toString(), equals('00:00:10:23'));
+      t.next();
+      expect(t.toString(), equals('00:00:11:00'));
     });
   });
 }
