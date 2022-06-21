@@ -1,3 +1,7 @@
+## 0.4.0
+
+-   The Timecode object can now 'run' meaning it has functions to start, stop, pause, and resume an internal timer that will not only update the frame count according to real time, but will also output a stream of Timecode updates.
+
 ## 0.3.0
 
 -   minor documentation improvements and a spelling correction.

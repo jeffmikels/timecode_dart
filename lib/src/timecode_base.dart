@@ -1,3 +1,5 @@
+import 'dart:async';
+
 const double defaultFPS = 24;
 
 /// Some parts have been copied / inspired by the pytimecode library by Joshua Banton
@@ -33,14 +35,35 @@ class Timecode extends Object {
   bool get isMillis => integerFps == 1000;
   bool forceFractionalSeconds = false;
 
-  /// _frames keeps track of the actual frame count
-  int _frameCount = 0;
+  /// keeps track of the actual frame count
   int get frameCount => _frameCount;
   set frameCount(int n) {
     if (n < 0) throw TimecodeException('frames must be given in integers greater than zero. Received: $n');
     _frameCount = n;
     _recomputeParts();
+    _streamController.add(true);
   }
+
+  int _frameCount = 0;
+
+  /// this is the frame to use whenever we `reset` this timecode
+  int startingFrame = 0;
+
+  /// reports whether the timecode has a start time
+  bool get started => startTime != null;
+
+  /// the real time when this timecode was "started"
+  DateTime? startTime;
+
+  /// reports whether the timecode internal timer is running
+  bool get running => _timer?.isActive ?? false;
+
+  Timer? _timer;
+  final StreamController<bool> _streamController = StreamController.broadcast();
+
+  /// a stream of updates when the timecode internal timer is running
+  /// NOTE: The stream gets another `true` value every time it updates.
+  Stream<bool> get updateStream => _streamController.stream;
 
   /// the real timecode parts get updated whenever frames are changed
   TimecodeData parts = TimecodeData();
@@ -78,7 +101,7 @@ class Timecode extends Object {
     TimecodeFramerate? framerate,
     int startFrames = 0,
   }) : framerate = framerate ?? TimecodeFramerate(defaultFPS) {
-    _frameCount = startFrames;
+    startingFrame = _frameCount = startFrames;
     _recomputeParts();
   }
 
@@ -208,6 +231,8 @@ class Timecode extends Object {
     parts = framerate.parseFrames(frameCount);
   }
 
+  /// can use fractional seconds
+  void addSeconds(double seconds) => frameCount = frameCount + framerate.timecodeSecondsToFrames(seconds);
   void addFrames(int n) => frameCount = frameCount + n;
   void subFrames(int n) => frameCount = frameCount - n;
   void multFrames(int n) => frameCount = frameCount * n;
@@ -223,6 +248,65 @@ class Timecode extends Object {
     var ffs = (forceFractionalSeconds || isMillis) ? frac.toString().padLeft(3, '0') : ff.toString().padLeft(2, '0');
     var delim = frameDelimiter;
     return '$hhs:$mms:$sss$delim$ffs';
+  }
+
+  /// Will "start" a timecode by recording the current start time.
+  /// Subsequent calls to `update` will then update the frames
+  /// from the elapsed time since this start time.
+  void start({bool fromCurrentFrame = false}) {
+    stop(andReset: !fromCurrentFrame);
+    startTime = DateTime.now();
+    resume();
+  }
+
+  /// Will reset the timecode instance to the frame identified by
+  /// `startingFrame` which was set when the object is created
+  /// but may have been updated since then.
+  void reset() {
+    frameCount = startingFrame;
+  }
+
+  /// Will stop a timecode and reset the `startTime` to `null`
+  void stop({bool andReset = true}) {
+    _timer?.cancel();
+    startTime = null;
+    if (andReset) reset();
+  }
+
+  /// Will pause the internal timecode timer so that it can be resumed.
+  void pause() {
+    _timer?.cancel();
+  }
+
+  /// Will resume a paused internal timer or will start one now.
+  void resume() {
+    if (!started) {
+      start();
+      return;
+    }
+    _timer?.cancel();
+    var tenthOfAFrame = 0.1 * 1000000 / fps;
+    _timer = Timer.periodic(
+      Duration(microseconds: tenthOfAFrame.toInt()),
+      (timer) {
+        update();
+      },
+    );
+  }
+
+  /// Will be called by the internal timer, or may be called at any time.
+  void update() {
+    if (startTime == null) throw Exception('Must call `start()` before calling this.');
+    var now = DateTime.now();
+    var diff = now.difference(startTime!).inMilliseconds;
+    if (diff < 0) throw Exception('Back in Time: Current time is before the start time!');
+    frameCount = framerate.realSecondsToFrames(diff / 1000);
+  }
+
+  /// Will run an update and then return the string representation of this timecode.
+  String now() {
+    update();
+    return toString();
   }
 }
 
@@ -316,8 +400,10 @@ class TimecodeFramerate {
     // return (seconds * ((isDropFrame && !ignoreDropFrame) ? integerFps : fps)).floor();
   }
 
-  /// code modified for Dart and split into two functions
+  /// Code modified for Dart and split into two functions
   /// from https://www.davidheidelberger.com/2010/06/10/drop-frame-timecode/
+  /// Also consider the implementation here:
+  /// http://www.andrewduncan.net/timecodes/
   TimecodeData parseFrames(int frameCount, {ignoreDropFrame = false}) {
     frameCount = timecodeFrames(frameCount, ignoreDropFrame: ignoreDropFrame);
 
